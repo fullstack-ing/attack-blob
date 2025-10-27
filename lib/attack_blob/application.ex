@@ -13,6 +13,8 @@ defmodule AttackBlob.Application do
       {Phoenix.PubSub, name: AttackBlob.PubSub},
       # Start KeyManager to load access keys before handling requests
       AttackBlob.KeyManager,
+      # Start MultipartUpload manager for chunked uploads
+      AttackBlob.MultipartUpload,
       # Start to serve requests, typically the last entry
       AttackBlobWeb.Endpoint
     ]
