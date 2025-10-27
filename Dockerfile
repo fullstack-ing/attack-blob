@@ -49,10 +49,11 @@ COPY priv priv
 
 COPY lib lib
 
-COPY assets assets
+# # No UI in this app
+# COPY assets assets
 
-# compile assets
-RUN mix assets.deploy
+# # compile assets
+# RUN mix assets.deploy
 
 # Compile the release
 RUN mix compile
