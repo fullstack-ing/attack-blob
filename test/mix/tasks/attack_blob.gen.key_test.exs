@@ -1,5 +1,5 @@
 defmodule Mix.Tasks.AttackBlob.Gen.KeyTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import Bitwise
   import ExUnit.CaptureIO

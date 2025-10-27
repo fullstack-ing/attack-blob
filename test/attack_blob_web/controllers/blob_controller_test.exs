@@ -1,5 +1,5 @@
 defmodule AttackBlobWeb.BlobControllerTest do
-  use AttackBlobWeb.ConnCase, async: true
+  use AttackBlobWeb.ConnCase, async: false
 
   @test_bucket "test-bucket"
 
