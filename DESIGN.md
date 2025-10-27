@@ -197,10 +197,53 @@ AttackBlob is a lightweight, minimal blob storage server designed as a MINIO alt
 1. **Object naming**: Should we enforce S3 object key restrictions?
 2. **Bucket creation**: Auto-create buckets on first upload or require explicit creation?
 3. **Cache invalidation**: How to handle external file system modifications?
-4. **Multipart uploads**: Support for large files?
-5. **Storage limits**: Per-bucket quotas?
-6. **Presigned URLs**: Support for time-limited public upload URLs?
-7. **CORS**: Support for cross-origin requests?
+4. **Storage limits**: Per-bucket quotas?
+
+## Implemented Features
+
+1. **Presigned URLs**: ✅ Time-limited upload URLs with AWS Signature V4
+2. **CORS**: ✅ Configurable cross-origin resource sharing via environment variables
+3. **Multipart Uploads**: ✅ AWS S3-compatible chunked uploads for large files (up to 5TB)
+
+## Multipart Upload Implementation
+
+### Architecture
+
+AttackBlob supports AWS S3-compatible multipart uploads for large files:
+
+**Components:**
+- **MultipartUpload GenServer**: Tracks active upload sessions in ETS
+- **Temporary Part Storage**: Parts stored in `./data/multipart/{upload_id}/`
+- **Automatic Cleanup**: Abandoned uploads cleaned up after 24 hours
+
+**Workflow:**
+1. **Initiate**: `POST /:bucket/:key?uploads` → Returns upload ID
+2. **Upload Parts**: `PUT /:bucket/:key?partNumber=N&uploadId=ID` → Returns ETag per part
+3. **Complete**: `POST /:bucket/:key?uploadId=ID` → Assembles parts into final file
+4. **Abort**: `DELETE /:bucket/:key?uploadId=ID` → Cancels upload and cleans up parts
+
+**Limits:**
+- Max parts: 10,000
+- Part size: 5MB minimum (except last part), 5GB maximum
+- Total file size: Up to 5TB
+
+**Storage:**
+```
+/data
+  /multipart
+    /{upload_id}
+      /part-1
+      /part-2
+      ...
+  /buckets
+    /{bucket_name}
+      /{object_key}    # Final assembled file
+```
+
+**GenServer State:**
+- Upload ID → {bucket, key, parts map, initiated_at}
+- ETS table for fast lookups
+- Hourly cleanup job for old uploads
 
 ## Configuration
 

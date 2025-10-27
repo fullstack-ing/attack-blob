@@ -29,8 +29,11 @@ defmodule AttackBlob.MultipartUpload do
 
   @doc """
   Initiates a new multipart upload.
+<<<<<<< Updated upstream
 
   Returns a unique upload ID that must be used for subsequent part uploads.
+=======
+>>>>>>> Stashed changes
   """
   @spec initiate(String.t(), String.t()) :: {:ok, upload_id()}
   def initiate(bucket, key) do
@@ -39,8 +42,11 @@ defmodule AttackBlob.MultipartUpload do
 
   @doc """
   Records an uploaded part.
+<<<<<<< Updated upstream
 
   Parts must be numbered sequentially starting from 1.
+=======
+>>>>>>> Stashed changes
   """
   @spec add_part(upload_id(), part_number(), String.t(), non_neg_integer()) ::
           :ok | {:error, :upload_not_found}
@@ -92,12 +98,17 @@ defmodule AttackBlob.MultipartUpload do
 
   @impl true
   def init(_opts) do
+<<<<<<< Updated upstream
     # Use ETS for fast lookups
     table = :ets.new(:multipart_uploads, [:set, :protected, read_concurrency: true])
 
     # Schedule periodic cleanup of old uploads (older than 24 hours)
     schedule_cleanup()
 
+=======
+    table = :ets.new(:multipart_uploads, [:set, :protected, read_concurrency: true])
+    schedule_cleanup()
+>>>>>>> Stashed changes
     Logger.info("MultipartUpload manager started")
     {:ok, %{table: table}}
   end
@@ -115,7 +126,10 @@ defmodule AttackBlob.MultipartUpload do
     }
 
     :ets.insert(state.table, {upload_id, upload_info})
+<<<<<<< Updated upstream
 
+=======
+>>>>>>> Stashed changes
     Logger.debug("Initiated multipart upload: #{upload_id} for #{bucket}/#{key}")
     {:reply, {:ok, upload_id}, state}
   end
@@ -127,8 +141,11 @@ defmodule AttackBlob.MultipartUpload do
         part_info = %{etag: etag, size: size}
         updated_info = put_in(upload_info, [:parts, part_number], part_info)
         :ets.insert(state.table, {upload_id, updated_info})
+<<<<<<< Updated upstream
 
         Logger.debug("Added part #{part_number} to upload #{upload_id}")
+=======
+>>>>>>> Stashed changes
         {:reply, :ok, state}
 
       [] ->
@@ -151,11 +168,15 @@ defmodule AttackBlob.MultipartUpload do
         parts =
           upload_info.parts
           |> Enum.map(fn {part_number, part_info} ->
+<<<<<<< Updated upstream
             %{
               part_number: part_number,
               etag: part_info.etag,
               size: part_info.size
             }
+=======
+            %{part_number: part_number, etag: part_info.etag, size: part_info.size}
+>>>>>>> Stashed changes
           end)
           |> Enum.sort_by(& &1.part_number)
 
@@ -228,14 +249,20 @@ defmodule AttackBlob.MultipartUpload do
   ## Private Functions
 
   defp generate_upload_id do
+<<<<<<< Updated upstream
     # Generate a unique upload ID similar to AWS format
+=======
+>>>>>>> Stashed changes
     timestamp = System.system_time(:millisecond)
     random = :crypto.strong_rand_bytes(16) |> Base.encode64(padding: false)
     "#{timestamp}-#{random}"
   end
 
   defp schedule_cleanup do
+<<<<<<< Updated upstream
     # Clean up old uploads every hour
+=======
+>>>>>>> Stashed changes
     Process.send_after(self(), :cleanup_old_uploads, :timer.hours(1))
   end
 end
