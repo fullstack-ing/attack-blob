@@ -4,6 +4,7 @@ defmodule AttackBlobWeb.BlobController do
 
   alias AttackBlob.AWS.Signature
   alias AttackBlob.KeyManager
+  alias AttackBlob.MultipartUpload
 
   @doc """
   GET /:bucket - List objects in a bucket
@@ -104,9 +105,22 @@ defmodule AttackBlobWeb.BlobController do
   - x-amz-date header with request timestamp
   - x-amz-content-sha256 header with payload hash
 
+  Supports both single-part and multipart uploads:
+  - Single-part: PUT /:bucket/:key (body contains entire file)
+  - Multipart: PUT /:bucket/:key?partNumber=N&uploadId=ID (body contains part data)
+
   Returns 200 on success with ETag header.
   """
-  def put_object(conn, %{"bucket" => bucket, "key" => key}) do
+  def put_object(conn, %{"bucket" => bucket, "key" => key} = params) do
+    # Check if this is a multipart upload part
+    if Map.has_key?(params, "partNumber") and Map.has_key?(params, "uploadId") do
+      upload_part(conn, bucket, key, params["partNumber"], params["uploadId"])
+    else
+      upload_single_object(conn, bucket, key)
+    end
+  end
+
+  defp upload_single_object(conn, bucket, key) do
     with :ok <- validate_bucket_name(bucket),
          :ok <- validate_object_key(key),
          {:ok, access_key_id} <- authenticate_request(conn),
@@ -175,9 +189,22 @@ defmodule AttackBlobWeb.BlobController do
   - x-amz-date header with request timestamp
   - x-amz-content-sha256 header with payload hash
 
+  Supports both object deletion and aborting multipart uploads:
+  - Delete object: DELETE /:bucket/:key
+  - Abort multipart: DELETE /:bucket/:key?uploadId=ID
+
   Returns 204 No Content on success.
   """
-  def delete_object(conn, %{"bucket" => bucket, "key" => key}) do
+  def delete_object(conn, %{"bucket" => bucket, "key" => key} = params) do
+    # Check if this is an abort multipart upload request
+    if Map.has_key?(params, "uploadId") do
+      abort_multipart_upload(conn, bucket, key, params["uploadId"])
+    else
+      delete_single_object(conn, bucket, key)
+    end
+  end
+
+  defp delete_single_object(conn, bucket, key) do
     with :ok <- validate_bucket_name(bucket),
          :ok <- validate_object_key(key),
          {:ok, access_key_id} <- authenticate_request(conn),
@@ -275,6 +302,260 @@ defmodule AttackBlobWeb.BlobController do
 
       {:error, reason} ->
         Logger.error("Error retrieving object metadata: #{inspect(reason)}")
+        send_error(conn, 500, "Internal server error")
+    end
+  end
+
+  @doc """
+  POST /:bucket/*key - Multipart upload operations
+
+  Handles multiple operations based on query parameters:
+  - ?uploads - Initiate multipart upload
+  - ?uploadId=ID - Complete multipart upload
+  """
+  def post_object(conn, %{"bucket" => bucket, "key" => key} = params) do
+    cond do
+      # Initiate multipart upload: POST /:bucket/:key?uploads
+      Map.has_key?(params, "uploads") ->
+        initiate_multipart_upload(conn, bucket, key)
+
+      # Complete multipart upload: POST /:bucket/:key?uploadId=ID
+      Map.has_key?(params, "uploadId") ->
+        complete_multipart_upload(conn, bucket, key, params["uploadId"])
+
+      true ->
+        send_error(conn, 400, "Invalid request")
+    end
+  end
+
+  ## Multipart Upload Operations
+
+  defp initiate_multipart_upload(conn, bucket, key) do
+    with :ok <- validate_bucket_name(bucket),
+         :ok <- validate_object_key(key),
+         {:ok, access_key_id} <- authenticate_request(conn),
+         {:ok, access_key} <- KeyManager.lookup(access_key_id),
+         :ok <- authorize_bucket_access(access_key, bucket),
+         :ok <- check_permission(access_key, "put"),
+         {:ok, upload_id} <- MultipartUpload.initiate(bucket, format_key(key)) do
+      # Return AWS S3-compatible XML response
+      xml = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <InitiateMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+        <Bucket>#{bucket}</Bucket>
+        <Key>#{format_key(key)}</Key>
+        <UploadId>#{upload_id}</UploadId>
+      </InitiateMultipartUploadResult>
+      """
+
+      conn
+      |> put_resp_content_type("application/xml")
+      |> send_resp(200, xml)
+    else
+      {:error, :invalid_bucket_name} ->
+        send_error(conn, 400, "Invalid bucket name")
+
+      {:error, :invalid_object_key} ->
+        send_error(conn, 400, "Invalid object key")
+
+      {:error, :missing_authorization_header} ->
+        send_error(conn, 401, "Missing authorization header")
+
+      {:error, :signature_mismatch} ->
+        Logger.warning("Signature mismatch for multipart initiate: bucket=#{bucket}, key=#{inspect(key)}")
+        send_error(conn, 403, "Signature mismatch")
+
+      {:error, :signature_expired} ->
+        send_error(conn, 403, "Request has expired")
+
+      {:error, :access_key_not_found} ->
+        send_error(conn, 403, "Invalid access key")
+
+      {:error, :bucket_access_denied} ->
+        send_error(conn, 403, "Access denied to bucket")
+
+      {:error, :permission_denied} ->
+        send_error(conn, 403, "Permission denied")
+
+      {:error, reason} ->
+        Logger.error("Error initiating multipart upload: #{inspect(reason)}")
+        send_error(conn, 500, "Internal server error")
+    end
+  end
+
+  defp upload_part(conn, bucket, key, part_number_str, upload_id) do
+    with {:ok, part_number} <- parse_part_number(part_number_str),
+         :ok <- validate_bucket_name(bucket),
+         :ok <- validate_object_key(key),
+         {:ok, access_key_id} <- authenticate_request(conn),
+         {:ok, access_key} <- KeyManager.lookup(access_key_id),
+         :ok <- authorize_bucket_access(access_key, bucket),
+         :ok <- check_permission(access_key, "put"),
+         {:ok, upload_info} <- MultipartUpload.get_upload(upload_id),
+         :ok <- verify_upload_matches(upload_info, bucket, format_key(key)),
+         {:ok, body} <- read_request_body(conn),
+         :ok <- write_part(upload_id, part_number, body) do
+      # Calculate ETag for the part
+      etag = :crypto.hash(:md5, body) |> Base.encode16(case: :lower)
+
+      # Store part information
+      :ok = MultipartUpload.add_part(upload_id, part_number, etag, byte_size(body))
+
+      conn
+      |> put_resp_header("etag", "\"#{etag}\"")
+      |> send_resp(200, "")
+    else
+      {:error, :invalid_part_number} ->
+        send_error(conn, 400, "Invalid part number")
+
+      {:error, :invalid_bucket_name} ->
+        send_error(conn, 400, "Invalid bucket name")
+
+      {:error, :invalid_object_key} ->
+        send_error(conn, 400, "Invalid object key")
+
+      {:error, :not_found} ->
+        send_error(conn, 404, "Multipart upload not found")
+
+      {:error, :upload_mismatch} ->
+        send_error(conn, 400, "Upload ID does not match bucket/key")
+
+      {:error, :missing_authorization_header} ->
+        send_error(conn, 401, "Missing authorization header")
+
+      {:error, :signature_mismatch} ->
+        Logger.warning("Signature mismatch for part upload: bucket=#{bucket}, key=#{inspect(key)}")
+        send_error(conn, 403, "Signature mismatch")
+
+      {:error, :signature_expired} ->
+        send_error(conn, 403, "Request has expired")
+
+      {:error, :access_key_not_found} ->
+        send_error(conn, 403, "Invalid access key")
+
+      {:error, :bucket_access_denied} ->
+        send_error(conn, 403, "Access denied to bucket")
+
+      {:error, :permission_denied} ->
+        send_error(conn, 403, "Permission denied")
+
+      {:error, :body_too_large} ->
+        send_error(conn, 413, "Request entity too large")
+
+      {:error, reason} ->
+        Logger.error("Error uploading part: #{inspect(reason)}")
+        send_error(conn, 500, "Internal server error")
+    end
+  end
+
+  defp complete_multipart_upload(conn, bucket, key, upload_id) do
+    with :ok <- validate_bucket_name(bucket),
+         :ok <- validate_object_key(key),
+         {:ok, access_key_id} <- authenticate_request(conn),
+         {:ok, access_key} <- KeyManager.lookup(access_key_id),
+         :ok <- authorize_bucket_access(access_key, bucket),
+         :ok <- check_permission(access_key, "put"),
+         {:ok, upload_info} <- MultipartUpload.complete(upload_id),
+         {:ok, file_path} <- build_file_path(bucket, format_key(key)),
+         :ok <- assemble_parts(upload_info, file_path) do
+      # Calculate ETag for the completed file
+      etag = calculate_etag(file_path)
+
+      # Return AWS S3-compatible XML response
+      xml = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <CompleteMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+        <Location>#{bucket}/#{format_key(key)}</Location>
+        <Bucket>#{bucket}</Bucket>
+        <Key>#{format_key(key)}</Key>
+        <ETag>"#{etag}"</ETag>
+      </CompleteMultipartUploadResult>
+      """
+
+      conn
+      |> put_resp_content_type("application/xml")
+      |> send_resp(200, xml)
+    else
+      {:error, :invalid_bucket_name} ->
+        send_error(conn, 400, "Invalid bucket name")
+
+      {:error, :invalid_object_key} ->
+        send_error(conn, 400, "Invalid object key")
+
+      {:error, :not_found} ->
+        send_error(conn, 404, "Multipart upload not found")
+
+      {:error, :missing_authorization_header} ->
+        send_error(conn, 401, "Missing authorization header")
+
+      {:error, :signature_mismatch} ->
+        Logger.warning("Signature mismatch for multipart complete: bucket=#{bucket}, key=#{inspect(key)}")
+        send_error(conn, 403, "Signature mismatch")
+
+      {:error, :signature_expired} ->
+        send_error(conn, 403, "Request has expired")
+
+      {:error, :access_key_not_found} ->
+        send_error(conn, 403, "Invalid access key")
+
+      {:error, :bucket_access_denied} ->
+        send_error(conn, 403, "Access denied to bucket")
+
+      {:error, :permission_denied} ->
+        send_error(conn, 403, "Permission denied")
+
+      {:error, reason} ->
+        Logger.error("Error completing multipart upload: #{inspect(reason)}")
+        send_error(conn, 500, "Internal server error")
+    end
+  end
+
+  defp abort_multipart_upload(conn, bucket, key, upload_id) do
+    with :ok <- validate_bucket_name(bucket),
+         :ok <- validate_object_key(key),
+         {:ok, access_key_id} <- authenticate_request(conn),
+         {:ok, access_key} <- KeyManager.lookup(access_key_id),
+         :ok <- authorize_bucket_access(access_key, bucket),
+         :ok <- check_permission(access_key, "delete"),
+         {:ok, upload_info} <- MultipartUpload.get_upload(upload_id),
+         :ok <- verify_upload_matches(upload_info, bucket, format_key(key)),
+         :ok <- MultipartUpload.abort(upload_id),
+         :ok <- cleanup_parts(upload_id) do
+      send_resp(conn, 204, "")
+    else
+      {:error, :invalid_bucket_name} ->
+        send_error(conn, 400, "Invalid bucket name")
+
+      {:error, :invalid_object_key} ->
+        send_error(conn, 400, "Invalid object key")
+
+      {:error, :not_found} ->
+        send_error(conn, 404, "Multipart upload not found")
+
+      {:error, :upload_mismatch} ->
+        send_error(conn, 400, "Upload ID does not match bucket/key")
+
+      {:error, :missing_authorization_header} ->
+        send_error(conn, 401, "Missing authorization header")
+
+      {:error, :signature_mismatch} ->
+        Logger.warning("Signature mismatch for abort multipart: bucket=#{bucket}, key=#{inspect(key)}")
+        send_error(conn, 403, "Signature mismatch")
+
+      {:error, :signature_expired} ->
+        send_error(conn, 403, "Request has expired")
+
+      {:error, :access_key_not_found} ->
+        send_error(conn, 403, "Invalid access key")
+
+      {:error, :bucket_access_denied} ->
+        send_error(conn, 403, "Access denied to bucket")
+
+      {:error, :permission_denied} ->
+        send_error(conn, 403, "Permission denied")
+
+      {:error, reason} ->
+        Logger.error("Error aborting multipart upload: #{inspect(reason)}")
         send_error(conn, 500, "Internal server error")
     end
   end
@@ -451,6 +732,97 @@ defmodule AttackBlobWeb.BlobController do
     case File.rm(file_path) do
       :ok -> :ok
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  ## Multipart Upload Helpers
+
+  defp format_key(key) when is_list(key), do: Enum.join(key, "/")
+  defp format_key(key) when is_binary(key), do: key
+
+  defp parse_part_number(part_number_str) when is_binary(part_number_str) do
+    case Integer.parse(part_number_str) do
+      {num, ""} when num > 0 and num <= 10_000 -> {:ok, num}
+      _ -> {:error, :invalid_part_number}
+    end
+  end
+
+  defp parse_part_number(_), do: {:error, :invalid_part_number}
+
+  defp verify_upload_matches(upload_info, bucket, key) do
+    if upload_info.bucket == bucket and upload_info.key == key do
+      :ok
+    else
+      {:error, :upload_mismatch}
+    end
+  end
+
+  defp write_part(upload_id, part_number, body) do
+    # Store parts in a temporary directory
+    data_dir = Application.get_env(:attack_blob, :data_dir, "./data")
+    parts_dir = Path.join([data_dir, "multipart", upload_id])
+    File.mkdir_p!(parts_dir)
+
+    part_file = Path.join(parts_dir, "part-#{part_number}")
+
+    case File.write(part_file, body) do
+      :ok -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp assemble_parts(upload_info, final_file_path) do
+    data_dir = Application.get_env(:attack_blob, :data_dir, "./data")
+    parts_dir = Path.join([data_dir, "multipart", upload_info.upload_id])
+
+    # Ensure parent directory exists
+    final_file_path
+    |> Path.dirname()
+    |> File.mkdir_p!()
+
+    # Sort parts by part number and concatenate them
+    sorted_parts =
+      upload_info.parts
+      |> Enum.sort_by(fn {part_number, _} -> part_number end)
+
+    # Open final file for writing
+    case File.open(final_file_path, [:write, :binary]) do
+      {:ok, file} ->
+        result =
+          Enum.reduce_while(sorted_parts, :ok, fn {part_number, _part_info}, _acc ->
+            part_file = Path.join(parts_dir, "part-#{part_number}")
+
+            case File.read(part_file) do
+              {:ok, data} ->
+                case IO.binwrite(file, data) do
+                  :ok -> {:cont, :ok}
+                  {:error, reason} -> {:halt, {:error, reason}}
+                end
+
+              {:error, reason} ->
+                {:halt, {:error, reason}}
+            end
+          end)
+
+        File.close(file)
+
+        # Cleanup parts directory
+        File.rm_rf(parts_dir)
+
+        result
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp cleanup_parts(upload_id) do
+    data_dir = Application.get_env(:attack_blob, :data_dir, "./data")
+    parts_dir = Path.join([data_dir, "multipart", upload_id])
+
+    case File.rm_rf(parts_dir) do
+      {:ok, _} -> :ok
+      {:error, reason, _} -> {:error, reason}
     end
   end
 

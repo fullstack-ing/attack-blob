@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+if [ $# -ne 1 ]; then
+  echo "Usage: $0 ACCESS_KEY_ID"
+  exit 1
+fi
+
+ACCESS_KEY_ID="$1"
+
+cd -P -- "$(dirname -- "$0")"
+exec ./attack_blob eval "AttackBlob.Release.CLI.revoke_key(\"${ACCESS_KEY_ID}\", force: true)"

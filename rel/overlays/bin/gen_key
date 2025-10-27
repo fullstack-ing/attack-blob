@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+if [ $# -ne 1 ]; then
+  echo "Usage: $0 BUCKET_NAME"
+  exit 1
+fi
+
+BUCKET_NAME="$1"
+
+cd -P -- "$(dirname -- "$0")"
+exec ./attack_blob eval "AttackBlob.Release.CLI.gen_key(\"${BUCKET_NAME}\")"

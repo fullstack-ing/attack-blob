@@ -14,6 +14,10 @@ defmodule AttackBlobWeb.Router do
     get "/:bucket/*key", BlobController, :get_object
     head "/:bucket/*key", BlobController, :head_object
 
+    # Multipart upload operations (require AWS Signature V4 authentication)
+    # Routes are matched by query parameters in the controller
+    post "/:bucket/*key", BlobController, :post_object
+
     # Signed write operations (require AWS Signature V4 authentication)
     put "/:bucket/*key", BlobController, :put_object
     delete "/:bucket/*key", BlobController, :delete_object
