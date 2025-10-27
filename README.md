@@ -1,4 +1,6 @@
 # AttackBlob
+![Attack blob logo](https://raw.githubusercontent.com/fullstack-ing/attack-blob/refs/heads/main/priv/static/logo.png)
+
 
 A lightweight, minimal blob storage server designed as a MINIO alternative. AttackBlob provides public read-only blob storage with AWS S3-compliant signed upload capabilities.
 
