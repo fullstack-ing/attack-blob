@@ -18,6 +18,7 @@ defmodule AttackBlob.Test.Presigner do
   - `:request_datetime` - Request datetime (default: DateTime.utc_now())
   - `:link_expiry` - URL expiry in seconds (default: 3600)
   - `:headers` - Additional headers to sign (default: %{})
+  - `:query_params` - Additional query parameters to include (default: %{})
 
   ## Examples
 
@@ -37,6 +38,7 @@ defmodule AttackBlob.Test.Presigner do
     request_datetime = Keyword.get(opts, :request_datetime, DateTime.utc_now())
     link_expiry = Keyword.get(opts, :link_expiry, 3_600)
     additional_headers = Keyword.get(opts, :headers, %{})
+    query_params = Keyword.get(opts, :query_params, %{})
 
     uri =
       config.endpoint
@@ -52,13 +54,13 @@ defmodule AttackBlob.Test.Presigner do
     credential = credential(config, request_datetime)
 
     query =
-      %{
+      Map.merge(query_params, %{
         "X-Amz-Algorithm" => @sign_v4_algo,
         "X-Amz-Credential" => credential,
         "X-Amz-Date" => iso8601_datetime(request_datetime),
         "X-Amz-Expires" => to_string(link_expiry),
         "X-Amz-SignedHeaders" => get_signed_headers(headers_to_sign)
-      }
+      })
       |> URI.encode_query()
 
     new_uri = Map.put(uri, :query, query)

@@ -6,6 +6,7 @@ A lightweight, minimal blob storage server designed as a MINIO alternative. Atta
 
 - **Public Read Access** - Anyone can GET blobs via HTTP
 - **AWS S3-Compatible Uploads** - Signed PUT/DELETE requests using AWS Signature V4
+- **Multipart Uploads** - Chunked uploads for large files (up to 5TB)
 - **Presigned URLs** - Support for time-limited upload URLs
 - **Key-Based Authentication** - Simple access key to bucket pairing
 - **No Database** - File-based configuration with in-memory caching
@@ -96,6 +97,71 @@ curl -X PUT "http://localhost:4000/my-bucket/file.txt?X-Amz-Algorithm=..." \
 # Public read access - no authentication required
 curl http://localhost:4000/my-bucket/file.txt
 ```
+
+### Multipart Upload (for large files)
+
+AttackBlob supports AWS S3-compatible multipart uploads for efficiently uploading large files in chunks.
+
+**Workflow:**
+1. Initiate multipart upload - get an upload ID
+2. Upload parts (chunks) - each part gets an ETag
+3. Complete multipart upload - assemble all parts into final file
+
+**Example using AWS SDK:**
+```javascript
+// Using AWS SDK for JavaScript
+const AWS = require('aws-sdk');
+
+const s3 = new AWS.S3({
+  endpoint: 'http://localhost:4000',
+  accessKeyId: 'AKIATEST...',
+  secretAccessKey: 'your-secret-key',
+  region: 'us-east-1',
+  s3ForcePathStyle: true
+});
+
+// Initiate multipart upload
+const params = {
+  Bucket: 'my-bucket',
+  Key: 'large-file.zip'
+};
+
+const multipart = await s3.createMultipartUpload(params).promise();
+const uploadId = multipart.UploadId;
+
+// Upload parts (5MB minimum per part except last)
+const partSize = 5 * 1024 * 1024; // 5MB
+const parts = [];
+
+for (let i = 0; i < totalParts; i++) {
+  const partParams = {
+    Bucket: 'my-bucket',
+    Key: 'large-file.zip',
+    PartNumber: i + 1,
+    UploadId: uploadId,
+    Body: fileChunk
+  };
+
+  const part = await s3.uploadPart(partParams).promise();
+  parts.push({ ETag: part.ETag, PartNumber: i + 1 });
+}
+
+// Complete multipart upload
+const completeParams = {
+  Bucket: 'my-bucket',
+  Key: 'large-file.zip',
+  UploadId: uploadId,
+  MultipartUpload: { Parts: parts }
+};
+
+await s3.completeMultipartUpload(completeParams).promise();
+```
+
+**Features:**
+- Supports files up to 5TB (10,000 parts × 5GB max part size)
+- Parts can be uploaded in parallel for faster speeds
+- Failed parts can be retried independently
+- Automatic cleanup of abandoned uploads after 24 hours
 
 ### List Bucket Contents
 
