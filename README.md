@@ -233,9 +233,11 @@ This script will:
 
 ### CORS Configuration
 
+CORS settings can be configured at runtime using environment variables. The application includes sensible defaults that can be overridden for production deployments.
+
 - **`CORS_ALLOWED_ORIGINS`** (default: `*`)
   Comma-separated list of allowed origins for CORS requests
-  - `*` - Allow all origins (default)
+  - `*` - Allow all origins (default, suitable for public blob storage)
   - `https://example.com,https://app.example.com` - Specific origins
   - `` (empty) - Disable CORS
 
@@ -244,6 +246,8 @@ This script will:
 
 - **`CORS_ALLOW_CREDENTIALS`** (default: `true`)
   Allow credentials in CORS requests (`true` or `false`)
+
+**Note:** CORS configuration is set at runtime, allowing you to change these values without rebuilding the Docker image. Default values are compiled into the release for optimal performance.
 
 ### Server Configuration
 

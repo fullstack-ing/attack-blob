@@ -10,6 +10,12 @@ import Config
 config :attack_blob,
   generators: [timestamp_type: :utc_datetime]
 
+# Default CORS configuration (can be overridden at runtime)
+config :attack_blob, :cors,
+  origins: ~r/.*/,
+  max_age: 600,
+  allow_credentials: true
+
 # Configures the endpoint
 config :attack_blob, AttackBlobWeb.Endpoint,
   url: [host: "localhost"],

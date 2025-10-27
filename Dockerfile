@@ -88,6 +88,15 @@ ENV MIX_ENV="prod"
 # Only copy the final release from the build stage
 COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/attack_blob ./
 
+# Create data directory structure with correct permissions
+# This must be done before USER nobody and before VOLUME declaration
+RUN mkdir -p /app/data/keys /app/data/buckets /app/data/multipart && \
+    chown -R nobody:nogroup /app/data
+
+# Declare volume after setting permissions
+VOLUME ["/app/data"]
+
+# Switch to unprivileged user
 USER nobody
 
 # If using an environment that doesn't automatically reap zombie processes, it is

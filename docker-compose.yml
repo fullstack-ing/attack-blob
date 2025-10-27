@@ -1,8 +1,8 @@
-version: '3.8'
-
 services:
   attack-blob:
-    image: fullstacking/attack-blob:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: attack-blob
     restart: unless-stopped
 

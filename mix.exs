@@ -11,7 +11,8 @@ defmodule AttackBlob.MixProject do
       aliases: aliases(),
       deps: deps(),
       listeners: [Phoenix.CodeReloader],
-      dialyzer: dialyzer()
+      dialyzer: dialyzer(),
+      releases: releases()
     ]
   end
 
@@ -78,6 +79,19 @@ defmodule AttackBlob.MixProject do
       plt_add_apps: [:mix, :ex_unit],
       plt_file: {:no_warn, "priv/plts/dialyzer.plt"},
       ignore_warnings: ".dialyzer_ignore.exs"
+    ]
+  end
+
+  # Release configuration
+  defp releases do
+    [
+      attack_blob: [
+        # Disable compile-time environment validation for releases
+        # This allows runtime.exs to override compile-time config (e.g., CORS settings)
+        validate_compile_env: false,
+        include_executables_for: [:unix],
+        applications: [runtime_tools: :permanent]
+      ]
     ]
   end
 end
