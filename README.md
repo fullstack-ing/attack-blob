@@ -1,8 +1,13 @@
 # AttackBlob
+
 ![Attack blob logo](https://raw.githubusercontent.com/fullstack-ing/attack-blob/refs/heads/main/priv/static/logo.png)
 
+[![Docker Hub](https://img.shields.io/docker/v/fullstacking/attack-blob?label=Docker%20Hub&logo=docker)](https://hub.docker.com/r/fullstacking/attack-blob)
+[![Docker Pulls](https://img.shields.io/docker/pulls/fullstacking/attack-blob?logo=docker)](https://hub.docker.com/r/fullstacking/attack-blob)
 
 A lightweight, minimal blob storage server designed as a MINIO alternative. AttackBlob provides public read-only blob storage with AWS S3-compliant signed upload capabilities.
+
+**Production-ready Docker images available on [Docker Hub](https://hub.docker.com/r/fullstacking/attack-blob)**
 
 ## Features
 
@@ -43,6 +48,178 @@ mix attack_blob.list.buckets
 # Revoke an access key
 mix attack_blob.revoke.key AKIAXXXXXXXX
 ```
+
+## Docker Deployment
+
+AttackBlob is available as a Docker image for easy deployment in production environments.
+
+### Quick Start with Docker
+
+```bash
+# Pull the latest image
+docker pull fullstacking/attack-blob:latest
+
+# Run with persistent storage
+docker run -d \
+  --name attack-blob \
+  -p 4004:4004 \
+  -v attack_blob_data:/app/data \
+  -e SECRET_KEY_BASE=$(openssl rand -base64 48) \
+  -e PHX_HOST=blobs.example.com \
+  fullstacking/attack-blob:latest
+```
+
+### Docker CLI Commands
+
+AttackBlob includes CLI tools for managing keys and buckets in production:
+
+```bash
+# Generate a new access key and bucket
+docker exec attack-blob /app/bin/gen_key my-bucket
+
+# List all access keys
+docker exec attack-blob /app/bin/list_keys
+
+# List all buckets
+docker exec attack-blob /app/bin/list_buckets
+
+# Revoke an access key
+docker exec attack-blob /app/bin/revoke_key AKIAXXXXXXXX
+```
+
+### Docker Compose
+
+For local development or testing, use Docker Compose:
+
+```bash
+# Start the service
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Generate a test key
+docker-compose exec attack-blob /app/bin/gen_key test-bucket
+
+# Stop the service
+docker-compose down
+```
+
+See the included `docker-compose.yml` for a complete example with volume mounting and environment configuration.
+
+#### Complete Docker Compose Workflow
+
+Here's a complete example of setting up AttackBlob with Docker Compose:
+
+```bash
+# 1. Clone the repository (or download docker-compose.yml)
+git clone https://github.com/fullstacking/attack-blob.git
+cd attack-blob
+
+# 2. (Optional) Copy and customize environment variables
+cp .env.example .env
+# Edit .env with your preferred settings
+
+# 3. Start the service
+docker-compose up -d
+
+# 4. Wait for the service to be healthy
+docker-compose ps
+
+# 5. Generate an access key
+docker-compose exec attack-blob /app/bin/gen_key my-first-bucket
+
+# Example output:
+# Access key created successfully!
+#
+# Bucket: my-first-bucket
+# Access Key ID: AKIAEXAMPLE123456789
+# Secret Key: ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk12
+#
+# Permissions: put, delete
+#
+# IMPORTANT: Save the secret key now! It won't be displayed again.
+
+# 6. Test uploading a file (requires AWS CLI or SDK)
+# See "Usage Examples" section below for upload instructions
+
+# 7. Test public download
+curl http://localhost:4004/my-first-bucket/test.txt
+
+# 8. View all keys
+docker-compose exec attack-blob /app/bin/list_keys
+
+# 9. View logs
+docker-compose logs -f attack-blob
+
+# 10. Stop the service (keeps data)
+docker-compose down
+
+# To remove data as well:
+docker-compose down -v
+```
+
+### Docker Volumes
+
+AttackBlob stores data in `/app/data` inside the container. This directory contains:
+
+- `/app/data/keys/` - Access key configurations (JSON files)
+- `/app/data/buckets/` - Blob storage organized by bucket
+- `/app/data/multipart/` - Temporary storage for in-progress multipart uploads
+
+**Important:** Always mount a volume to `/app/data` for persistent storage:
+
+```bash
+# Using a named volume (recommended)
+docker run -v attack_blob_data:/app/data fullstacking/attack-blob:latest
+
+# Using a bind mount (for direct access)
+docker run -v /path/on/host:/app/data fullstacking/attack-blob:latest
+```
+
+### Docker Environment Variables
+
+See the [Environment Variables](#environment-variables) section below for all available configuration options. Key variables for Docker:
+
+```bash
+docker run -d \
+  -e SECRET_KEY_BASE=your-secret-key-here \
+  -e PHX_HOST=blobs.example.com \
+  -e PORT=4004 \
+  -e ATTACK_BLOB_DATA_DIR=/app/data \
+  -e ATTACK_BLOB_MAX_UPLOAD_SIZE=5368709120 \
+  -e CORS_ALLOWED_ORIGINS="*" \
+  fullstacking/attack-blob:latest
+```
+
+### Building Your Own Image
+
+```bash
+# Build from source
+docker build -t attack-blob:custom .
+
+# Run your custom build
+docker run -d -p 4004:4004 attack-blob:custom
+```
+
+### Testing Your Docker Setup
+
+A test script is included to verify your Docker setup:
+
+```bash
+# Make the script executable (first time only)
+chmod +x test-docker.sh
+
+# Run the test
+./test-docker.sh
+```
+
+This script will:
+- Start AttackBlob with docker-compose
+- Generate a test bucket and access key
+- List keys and buckets
+- Test the health endpoint
+- Display instructions for next steps
 
 ## Environment Variables
 

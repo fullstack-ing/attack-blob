@@ -30,3 +30,6 @@ attack_blob-*.tar
 /.elixir_ls/
 
 /priv/plts/
+
+# Environment variables
+.env

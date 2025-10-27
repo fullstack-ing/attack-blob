@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  attack-blob:
+    image: fullstacking/attack-blob:latest
+    container_name: attack-blob
+    restart: unless-stopped
+
+    ports:
+      # Expose port 4004 (production default)
+      - "4004:4004"
+
+    volumes:
+      # Persistent storage for keys and blobs
+      # Use a named volume for Docker-managed storage
+      - attack_blob_data:/app/data
+
+      # Alternative: bind mount to a local directory for direct access
+      # - ./data:/app/data
+
+    environment:
+      # Server Configuration
+      # Generate a secure key with: openssl rand -base64 48
+      SECRET_KEY_BASE: "${SECRET_KEY_BASE:-please-change-this-secret-key-in-production}"
+
+      # Hostname for URL generation (change for production)
+      PHX_HOST: "${PHX_HOST:-localhost}"
+
+      # Port to listen on (default: 4004)
+      PORT: "${PORT:-4004}"
+
+      # Storage Configuration
+      ATTACK_BLOB_DATA_DIR: "/app/data"
+
+      # Maximum upload size in bytes (default: 5GB)
+      ATTACK_BLOB_MAX_UPLOAD_SIZE: "${ATTACK_BLOB_MAX_UPLOAD_SIZE:-5368709120}"
+
+      # CORS Configuration
+      # Allow all origins by default (change for production)
+      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-*}"
+      CORS_MAX_AGE: "${CORS_MAX_AGE:-600}"
+      CORS_ALLOW_CREDENTIALS: "${CORS_ALLOW_CREDENTIALS:-true}"
+
+    # Healthcheck removed - curl not available in minimal image
+    # The service typically starts within 10-15 seconds
+    # You can check status with: docker-compose ps
+
+    # Resource limits (optional, adjust as needed)
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '2'
+    #       memory: 2G
+    #     reservations:
+    #       cpus: '1'
+    #       memory: 512M
+
+volumes:
+  attack_blob_data:
+    driver: local
